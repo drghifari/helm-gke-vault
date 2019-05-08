@@ -1,0 +1,120 @@
+# Default values for helm-chart.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+app:
+  name: vault
+
+service:
+  name: vault
+  port: 443
+  targetPort: 8200
+
+configmap:
+  name: vault
+
+vaultContainer:
+  name: vault
+  pullPolicy: IfNotPresent
+  env: |
+    - name: GOOGLE_APPLICATION_CREDENTIALS
+      value: {{ .Values.secrets.gcp.path }}/key.json
+    - name: POD_IP_ADDR
+      valueFrom:
+        fieldRef:
+          fieldPath: status.podIP
+    - name: VAULT_ADDR
+      value: "http://127.0.0.1:8200"
+    - name: VAULT_LOCAL_CONFIG
+      value: |
+        api_addr     = "https://{{ .Values.service.loadBalancerIP }}"
+        cluster_addr = "https://$(POD_IP_ADDR):8201"
+        log_level = "warn"
+        ui = true
+        seal "gcpckms" {
+          project    = "{{ .Values.configmap.kmsProject }}"
+          region     = "{{ .Values.configmap.kmsRegion }}"
+          key_ring   = "{{ .Values.configmap.kmsKeyRing }}"
+          crypto_key = "{{ .Values.configmap.kmsCryptoKey }}"
+        }
+        storage "gcs" {
+          bucket     = "{{ .Values.configmap.gcsBucketName }}"
+          ha_enabled = "true"
+        }
+        listener "tcp" {
+          address     = "127.0.0.1:8200"
+          tls_disable = "true"
+        }
+        listener "tcp" {
+          address       = "$(POD_IP_ADDR):8200"
+          tls_cert_file = "/etc/vault/tls/{{ .Values.tls.certFilename }}"
+          tls_key_file  = "/etc/vault/tls/{{ .Values.tls.keyFilename }}"
+          tls_disable_client_certs = true
+          tls_min_version = "tls12"
+        }
+  args: ["server"]
+  vaultPort: 8200
+  clusterPort: 8201
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    path: '"/v1/sys/health?standbyok=true"'
+    port: 8200
+    scheme: HTTPS
+
+sidecarContainers:
+  pullPolicy: IfNotPresent
+  env: |
+    - name: VAULT_ADDR
+      value: "http://127.0.0.1:8200"
+    - name: CHECK_INTERVAL
+      value: "10"
+    - name: GOOGLE_APPLICATION_CREDENTIALS
+      value: {{ .Values.secrets.gcp.path }}/key.json
+    - name: GCS_BUCKET_NAME
+      valueFrom:
+        configMapKeyRef:
+          name: vault
+          key: gcs-bucket-name
+    - name: "KMS_KEY_ID"
+      valueFrom:
+        configMapKeyRef:
+          name: vault
+          key: kms-key-id
+
+secrets:
+  vault:
+    name: vault
+    path: /etc/vault/tls
+  gcp:
+    name: gcp
+    path: /var/secrets/google
+
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  path: /
+  hosts:
+    - chart-example.local
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+nodeSelector: {}
+
+tolerations: []
+
+terminationGracePeriodSeconds: 10
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app
+              operator: In
+              values: ["vault"]
+        topologyKey: kubernetes.io/hostname

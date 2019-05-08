@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.app.name }}
+  labels:
+    app: {{ .Values.app.name }}
+spec:
+  serviceName: "{{ .Values.service.name }}"
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.app.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.app.name }}
+    spec:
+      affinity:
+{{ toYaml .Values.affinity | indent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ .Values.sidecarContainers.name }}
+          image: "{{ .Values.sidecarContainers.image }}:{{ .Values.sidecarContainers.tag }}"
+          imagePullPolicy: {{ .Values.sidecarContainers.pullPolicy }}
+          resources:
+{{ toYaml .Values.sidecarContainers.resources | indent 11 }}
+          env:
+{{ tpl .Values.sidecarContainers.env . | indent 10 }}
+          volumeMounts:
+            - name: vault-tls
+              mountPath: {{ .Values.secrets.vault.path }}
+            - name: gcp-key
+              mountPath: {{ .Values.secrets.gcp.path }}
+        - name: {{ .Values.vaultContainer.name }}
+          image: "{{ .Values.vaultContainer.image }}:{{ .Values.vaultContainer.tag }}"
+          imagePullPolicy: {{ .Values.vaultContainer.pullPolicy }}
+          args: {{ .Values.vaultContainer.args }}
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
+          ports:
+            - name: vault-port
+              containerPort: {{ .Values.vaultContainer.vaultPort }}
+              protocol: "TCP"
+            - name: cluster-port
+              containerPort: {{ .Values.vaultContainer.clusterPort }}
+              protocol: "TCP"
+          resources:
+{{ toYaml .Values.vaultContainer.resources | indent 11 }}
+          volumeMounts:
+            - name: vault-tls
+              mountPath: {{ .Values.secrets.vault.path }}
+            - name: gcp-key
+              mountPath: {{ .Values.secrets.gcp.path }}
+          env:
+{{ tpl .Values.vaultContainer.env . | indent 10 }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.vaultContainer.readiness.path }}
+              port: {{ .Values.vaultContainer.readiness.port }}
+              scheme: {{ .Values.vaultContainer.readiness.scheme }}
+            initialDelaySeconds: {{ .Values.vaultContainer.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vaultContainer.readiness.periodSeconds }}
+      volumes:
+        - name: vault-tls
+          secret:
+            secretName: {{ .Values.secrets.vault.name }}
+        - name: gcp-key
+          secret:
+            secretName: {{ .Values.secrets.gcp.name }}

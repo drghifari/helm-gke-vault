@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.configmap.name }}
+  labels:
+    app: {{ .Values.app.name }}
+data:
+  api-addr: https://{{ .Values.service.loadBalancerIP }}:{{ .Values.service.targetPort }}
+  gcs-bucket-name: {{ .Values.configmap.gcsBucketName }}
+  kms-key-id: projects/{{ .Values.configmap.kmsProject }}/locations/{{ .Values.configmap.kmsRegion }}/keyRings/{{ .Values.configmap.kmsKeyRing }}/cryptoKeys/{{ .Values.configmap.kmsCryptoKey }}
